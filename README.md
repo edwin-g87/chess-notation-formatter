@@ -58,6 +58,8 @@ Output:
 - Piece letters: `nf3` becomes `Nf3`. This applies to N, Q, R, K. Lowercase
   `b` is left alone on purpose, since `bxc3` is genuinely ambiguous between
   a bishop capture and a b-file pawn capture without replaying the game.
+- Promotion: `e8Q`, `e8/Q`, and `e8=q` all become `e8=Q`. Works on captures
+  (`exd8N#` becomes `exd8=N#`) too.
 
 Lines starting with `[` (PGN tag pairs) pass through unchanged.
 
@@ -65,7 +67,6 @@ Lines starting with `[` (PGN tag pairs) pass through unchanged.
 
 This is an early version. Not handled yet:
 
-- Pawn promotion notation (`e8=Q`, `e8/Q`, `e8Q`)
 - Comments (`{...}`) and numeric annotation glyphs (`$1`, `!?`, etc.)
 - Disambiguating the lowercase `b` case by tracking board state
 - Validating that the moves are actually legal, as opposed to just

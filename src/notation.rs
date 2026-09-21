@@ -1,8 +1,9 @@
 //! Normalizes messy chess movetext into a consistent style:
 //! move numbers followed by ". " (or "... " for a black move shown on its
-//! own), uppercase piece letters, "x" for captures instead of ":", and "#"
-//! instead of "++" for mate. Lines that look like PGN tag pairs (starting
-//! with '[') are passed through untouched.
+//! own), uppercase piece letters, "x" for captures instead of ":", "#"
+//! instead of "++" for mate, and "=Q" for promotion regardless of whether
+//! the source used "=", "/", or nothing at all. Lines that look like PGN
+//! tag pairs (starting with '[') are passed through untouched.
 
 pub fn normalize(input: &str) -> String {
     let mut out = String::new();
@@ -70,7 +71,50 @@ fn normalize_move(mv: &str) -> String {
     if let Some(prefix) = result.strip_suffix("++") {
         result = format!("{prefix}#");
     }
-    result
+    normalize_promotion(&result)
+}
+
+// Promotion shows up as "e8=Q", "e8/Q", or the bare "e8Q", with the piece
+// letter in either case. All of these mean the same thing, so they all
+// collapse to the "=Q" form. Check/mate markers after the promoted piece
+// (already reduced to a single "+" or "#" by the time this runs) are kept.
+fn normalize_promotion(mv: &str) -> String {
+    let trailing = mv.chars().rev().take_while(|&c| c == '+' || c == '#').count();
+    let core_end = mv.len() - trailing;
+    let core = &mv[..core_end];
+    let suffix = &mv[core_end..];
+
+    let mut chars: Vec<char> = core.chars().collect();
+    let Some(&last) = chars.last() else {
+        return mv.to_string();
+    };
+    let piece = match last.to_ascii_uppercase() {
+        p @ ('Q' | 'R' | 'B' | 'N') => p,
+        _ => return mv.to_string(),
+    };
+    chars.pop();
+    if matches!(chars.last(), Some('=') | Some('/')) {
+        chars.pop();
+    }
+    let square: String = chars.into_iter().collect();
+    if is_promotion_square(&square) {
+        format!("{square}={piece}{suffix}")
+    } else {
+        mv.to_string()
+    }
+}
+
+// A promotion destination is a pawn move that lands on the back rank:
+// the token ends in a file letter followed by "1" or "8". The characters
+// before that (plain "e8" or a capture like "exd8") don't matter here.
+fn is_promotion_square(square: &str) -> bool {
+    let chars: Vec<char> = square.chars().collect();
+    if chars.len() < 2 {
+        return false;
+    }
+    let rank = chars[chars.len() - 1];
+    let file = chars[chars.len() - 2];
+    matches!(rank, '1' | '8') && matches!(file, 'a'..='h')
 }
 
 fn normalize_castling(mv: &str) -> Option<String> {
@@ -127,6 +171,25 @@ mod tests {
             normalize("1. e4 e5 2. Qh5 Nc6 3. Qxf7++"),
             "1. e4 e5 2. Qh5 Nc6 3. Qxf7#\n"
         );
+    }
+
+    #[test]
+    fn normalizes_promotion_variants() {
+        assert_eq!(normalize("39. b8=Q"), "39. b8=Q\n");
+        assert_eq!(normalize("39. b8Q"), "39. b8=Q\n");
+        assert_eq!(normalize("39. b8/Q"), "39. b8=Q\n");
+        assert_eq!(normalize("39. b8=q"), "39. b8=Q\n");
+    }
+
+    #[test]
+    fn normalizes_promotion_with_capture_and_check() {
+        assert_eq!(normalize("39. exd8=N+"), "39. exd8=N+\n");
+        assert_eq!(normalize("39. exd8N#"), "39. exd8=N#\n");
+    }
+
+    #[test]
+    fn leaves_non_promotion_moves_alone() {
+        assert_eq!(normalize("1. e4 e5 2. Nf3 Nc6"), "1. e4 e5 2. Nf3 Nc6\n");
     }
 
     #[test]
