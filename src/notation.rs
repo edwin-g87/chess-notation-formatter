@@ -3,7 +3,9 @@
 //! own), uppercase piece letters, "x" for captures instead of ":", "#"
 //! instead of "++" for mate, and "=Q" for promotion regardless of whether
 //! the source used "=", "/", or nothing at all. Lines that look like PGN
-//! tag pairs (starting with '[') are passed through untouched.
+//! tag pairs (starting with '[') are passed through untouched. Comments
+//! (`{...}`) and NAGs (`$1`, `$14`, ...) are passed through untouched too,
+//! rather than being tokenized as if they were moves.
 
 pub fn normalize(input: &str) -> String {
     let mut out = String::new();
@@ -20,15 +22,57 @@ pub fn normalize(input: &str) -> String {
 }
 
 fn normalize_line(line: &str) -> String {
-    line.split_whitespace()
-        .map(normalize_token)
-        .collect::<Vec<_>>()
-        .join(" ")
+    let mut tokens = Vec::new();
+    let mut rest = line;
+    loop {
+        rest = rest.trim_start();
+        if rest.is_empty() {
+            break;
+        }
+        if let Some(after_brace) = rest.strip_prefix('{') {
+            // A comment runs to the matching '}'. Its contents are opaque
+            // to us: copy them verbatim rather than tokenizing them as
+            // moves, which would mangle spacing and capitalize letters
+            // that happen to look like piece names. An unterminated
+            // comment (no closing brace on this line) just takes the rest
+            // of the line; proper handling of comments that span multiple
+            // lines needs the multi-line PGN reader we don't have yet.
+            match after_brace.find('}') {
+                Some(end) => {
+                    let comment = &rest[..end + 2];
+                    tokens.push(comment.to_string());
+                    rest = &rest[end + 2..];
+                }
+                None => {
+                    tokens.push(rest.to_string());
+                    rest = "";
+                }
+            }
+        } else {
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let tok = &rest[..end];
+            tokens.push(normalize_token(tok));
+            rest = &rest[end..];
+        }
+    }
+    tokens.join(" ")
+}
+
+// A NAG ("numeric annotation glyph") like "$1" or "$14" is an opaque
+// reference number, not a move; it must not be run through move
+// normalization just because it starts with a digit-like token.
+fn is_nag(tok: &str) -> bool {
+    let mut rest = tok.chars();
+    rest.next() == Some('$') && rest.clone().next().is_some() && rest.all(|c| c.is_ascii_digit())
 }
 
 // A token is either a move number marker ("12.", "12...", or the messy
 // "12.Nf3" run-together form) or a move itself.
 fn normalize_token(tok: &str) -> String {
+    if is_nag(tok) {
+        return tok.to_string();
+    }
+
     let digit_end = tok
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(tok.len());
@@ -196,5 +240,38 @@ mod tests {
     fn preserves_pgn_tag_lines() {
         let input = "[Event \"Test\"]\n1. e4 e5\n";
         assert_eq!(normalize(input), "[Event \"Test\"]\n1. e4 e5\n");
+    }
+
+    #[test]
+    fn preserves_comment_text_and_spacing() {
+        assert_eq!(
+            normalize("1. e4 {a fine   opening move} e5"),
+            "1. e4 {a fine   opening move} e5\n"
+        );
+    }
+
+    #[test]
+    fn does_not_mangle_words_inside_comments() {
+        // "nice" starts with 'n', which would get capitalized to "N" if
+        // the comment were tokenized like a move instead of passed through.
+        assert_eq!(normalize("1. e4 {nice move} e5"), "1. e4 {nice move} e5\n");
+    }
+
+    #[test]
+    fn passes_through_unterminated_comment() {
+        assert_eq!(
+            normalize("1. e4 {no closing brace"),
+            "1. e4 {no closing brace\n"
+        );
+    }
+
+    #[test]
+    fn passes_through_nags() {
+        assert_eq!(normalize("1. e4 e5 2. nf3 $1 nc6 $14"), "1. e4 e5 2. Nf3 $1 Nc6 $14\n");
+    }
+
+    #[test]
+    fn dollar_sign_alone_is_not_treated_as_nag() {
+        assert_eq!(normalize("1. e4 $"), "1. e4 $\n");
     }
 }

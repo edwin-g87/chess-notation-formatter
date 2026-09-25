@@ -60,6 +60,8 @@ Output:
   a bishop capture and a b-file pawn capture without replaying the game.
 - Promotion: `e8Q`, `e8/Q`, and `e8=q` all become `e8=Q`. Works on captures
   (`exd8N#` becomes `exd8=N#`) too.
+- Comments (`{like this}`) and NAGs (`$1`, `$14`, ...) are passed through
+  untouched rather than being tokenized as if they were moves.
 
 Lines starting with `[` (PGN tag pairs) pass through unchanged.
 
@@ -67,7 +69,10 @@ Lines starting with `[` (PGN tag pairs) pass through unchanged.
 
 This is an early version. Not handled yet:
 
-- Comments (`{...}`) and numeric annotation glyphs (`$1`, `!?`, etc.)
+- Comments that span multiple lines (a `{` with its matching `}` on a
+  later line)
+- Informal annotation glyphs like `!?` and `??` written directly after a
+  move
 - Disambiguating the lowercase `b` case by tracking board state
 - Validating that the moves are actually legal, as opposed to just
   reformatting the text
