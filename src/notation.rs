@@ -9,21 +9,39 @@
 
 pub fn normalize(input: &str) -> String {
     let mut out = String::new();
+    // True while we are between a '{' and its '}' that sit on different
+    // lines. Everything in that stretch is comment text, including lines
+    // that happen to start with '[' and would otherwise look like tags.
+    let mut in_comment = false;
     for line in input.lines() {
         let trimmed = line.trim_end();
-        if trimmed.trim_start().starts_with('[') {
+        if !in_comment && trimmed.trim_start().starts_with('[') {
             out.push_str(trimmed);
         } else {
-            out.push_str(&normalize_line(trimmed));
+            out.push_str(&normalize_line(trimmed, &mut in_comment));
         }
         out.push('\n');
     }
     out
 }
 
-fn normalize_line(line: &str) -> String {
+fn normalize_line(line: &str, in_comment: &mut bool) -> String {
     let mut tokens = Vec::new();
     let mut rest = line;
+
+    if *in_comment {
+        // Continuation of a comment from an earlier line. Keep its leading
+        // whitespace, since indentation inside a comment is the author's.
+        match rest.find('}') {
+            Some(end) => {
+                tokens.push(rest[..=end].to_string());
+                rest = &rest[end + 1..];
+                *in_comment = false;
+            }
+            None => return rest.to_string(),
+        }
+    }
+
     loop {
         rest = rest.trim_start();
         if rest.is_empty() {
@@ -33,10 +51,10 @@ fn normalize_line(line: &str) -> String {
             // A comment runs to the matching '}'. Its contents are opaque
             // to us: copy them verbatim rather than tokenizing them as
             // moves, which would mangle spacing and capitalize letters
-            // that happen to look like piece names. An unterminated
-            // comment (no closing brace on this line) just takes the rest
-            // of the line; proper handling of comments that span multiple
-            // lines needs the multi-line PGN reader we don't have yet.
+            // that happen to look like piece names. If the closing brace is
+            // not on this line, the comment takes the rest of the line and
+            // the caller is told to keep treating following lines as
+            // comment text until it finds the '}'.
             match after_brace.find('}') {
                 Some(end) => {
                     let comment = &rest[..end + 2];
@@ -46,6 +64,7 @@ fn normalize_line(line: &str) -> String {
                 None => {
                     tokens.push(rest.to_string());
                     rest = "";
+                    *in_comment = true;
                 }
             }
         } else {
@@ -263,6 +282,30 @@ mod tests {
             normalize("1. e4 {no closing brace"),
             "1. e4 {no closing brace\n"
         );
+    }
+
+    #[test]
+    fn passes_through_multiline_comment() {
+        let input = "1. e4 {first line\n  nice   second line\n} e5\n";
+        assert_eq!(normalize(input), "1. e4 {first line\n  nice   second line\n} e5\n");
+    }
+
+    #[test]
+    fn resumes_normalizing_after_multiline_comment_closes() {
+        let input = "1.e4 {start\nend} nc6 2.nf3\n";
+        assert_eq!(normalize(input), "1. e4 {start\nend} Nc6 2. Nf3\n");
+    }
+
+    #[test]
+    fn bracket_line_inside_comment_is_not_a_tag() {
+        let input = "1. e4 {see\n[Event \"x\"]\nnf3} e5\n";
+        assert_eq!(normalize(input), "1. e4 {see\n[Event \"x\"]\nnf3} e5\n");
+    }
+
+    #[test]
+    fn keeps_blank_lines_inside_comment() {
+        let input = "{a\n\nb}\n1.e4\n";
+        assert_eq!(normalize(input), "{a\n\nb}\n1. e4\n");
     }
 
     #[test]

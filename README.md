@@ -61,7 +61,9 @@ Output:
 - Promotion: `e8Q`, `e8/Q`, and `e8=q` all become `e8=Q`. Works on captures
   (`exd8N#` becomes `exd8=N#`) too.
 - Comments (`{like this}`) and NAGs (`$1`, `$14`, ...) are passed through
-  untouched rather than being tokenized as if they were moves.
+  untouched rather than being tokenized as if they were moves. This includes
+  comments that run across several lines; a line inside one that starts
+  with `[` is comment text, not a tag.
 
 Lines starting with `[` (PGN tag pairs) pass through unchanged.
 
@@ -69,8 +71,6 @@ Lines starting with `[` (PGN tag pairs) pass through unchanged.
 
 This is an early version. Not handled yet:
 
-- Comments that span multiple lines (a `{` with its matching `}` on a
-  later line)
 - Informal annotation glyphs like `!?` and `??` written directly after a
   move
 - Disambiguating the lowercase `b` case by tracking board state
